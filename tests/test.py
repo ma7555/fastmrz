@@ -2,8 +2,10 @@ import unittest
 import numpy as np
 import os
 from fastmrz import FastMRZ
+import cv2
 
 fast_mrz = FastMRZ()
+
 
 class TestFastMRZMethods(unittest.TestCase):
 
@@ -11,12 +13,12 @@ class TestFastMRZMethods(unittest.TestCase):
         image_path = os.path.abspath("data/td3.jpg")
         processed_image = fast_mrz._process_image(image_path)
         self.assertIsInstance(processed_image, np.ndarray)
-        self.assertEqual(processed_image.shape, (1, 256, 256, 3))
+        self.assertEqual(processed_image.shape, (320, 320, 3))
 
     def test_get_roi(self):
-        output_data = np.random.rand(1, 256, 256, 1)
-        image_path = os.path.abspath("data/td3.jpg")
-        roi = fast_mrz._get_roi(output_data, image_path)
+        output_data = np.random.rand(1, 2100, 5)
+        image = np.ones((320, 320, 3), dtype=np.uint8)
+        roi = fast_mrz._get_roi(output_data, image)
         self.assertIsInstance(roi, str)
 
     def test_cleanse_roi(self):
@@ -25,9 +27,7 @@ class TestFastMRZMethods(unittest.TestCase):
         self.assertIsInstance(cleansed_text, str)
 
     def test_get_final_check_digit(self):
-        input_string = (
-            "'I<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<\nD231458907UTO7408122F1204159<<<<<<<6"
-        )
+        input_string = "'I<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<\nD231458907UTO7408122F1204159<<<<<<<6"
         input_type = "TD2"
         final_check_digit = fast_mrz._get_final_check_digit(input_string, input_type)
         self.assertIsInstance(final_check_digit, str)
@@ -58,6 +58,7 @@ class TestFastMRZMethods(unittest.TestCase):
         mrz_data = fast_mrz.get_mrz(image_path)
         self.assertIsInstance(mrz_data, dict)
         self.assertIn("status", mrz_data.keys())
+
 
 if __name__ == "__main__":
     unittest.main()

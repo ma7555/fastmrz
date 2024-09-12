@@ -3,6 +3,9 @@ import cv2
 import pytesseract
 from datetime import datetime
 import os
+import cv2
+import numpy as np
+from PIL import Image
 
 
 class FastMRZ:
@@ -10,8 +13,47 @@ class FastMRZ:
     def __init__(self, tesseract_path=""):
         self.tesseract_path = tesseract_path
         self.net = cv2.dnn.readNetFromONNX(
-            os.path.join(os.path.dirname(__file__), "model/mrz_seg.onnx")
+            os.path.join(os.path.dirname(__file__), "model/mrz_det.onnx")
         )
+        self.INPUT_WIDTH = 320
+        self.INPUT_HEIGHT = 320
+        self.NMS_THRESHOLD = 0.7
+        self.CONFIDENCE_THRESHOLD = 0.5
+        self.CLASESS_YOLO = ["mrz"]
+
+    def resize_with_padding(self, image, target_size, padding_color=(0, 0, 0)):
+        """
+        Resize an image while keeping the aspect ratio intact and adding padding to reach the target size.
+
+        Args:
+        - image: Input image to be resized.
+        - target_size: Tuple of (width, height) for the target dimensions.
+        - padding_color: Tuple (B, G, R) to set padding color. Default is black (0, 0, 0).
+
+        Returns:
+        - Padded image with the aspect ratio maintained.
+        """
+        h, w = image.shape[:2]
+        target_w, target_h = target_size
+
+        # Calculate the scale factor to fit the image inside the target dimensions
+        scale = min(target_w / w, target_h / h)
+
+        # Resize the image according to the scale factor
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        resized_image = cv2.resize(image, (new_w, new_h))
+
+        # Create a blank image with the target size and fill it with the padding color
+        padded_image = np.full((target_h, target_w, 3), padding_color, dtype=np.uint8)
+
+        # Calculate the top-left corner to place the resized image to center it
+        top = (target_h - new_h) // 2
+        left = (target_w - new_w) // 2
+
+        # Place the resized image onto the blank image (padded image)
+        padded_image[top : top + new_h, left : left + new_w] = resized_image
+        return padded_image
 
     def _process_image(self, image_path):
         image = (
@@ -20,42 +62,65 @@ class FastMRZ:
             else image_path
         )
 
-        image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_NEAREST)
-        image = np.asarray(np.float32(image / 255))
-
-        if len(image.shape) > 3:
-            image = image[:, :, :3]
-        image = np.reshape(image, (1, 256, 256, 3))
+        image = self.resize_with_padding(image, (self.INPUT_WIDTH, self.INPUT_HEIGHT))
 
         return image
 
-    def _get_roi(self, output_data, image_path):
+    def _get_roi(self, output_data, image):
         if self.tesseract_path != "":
             pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
-        image = (
-            cv2.imread(image_path, cv2.IMREAD_COLOR)
-            if isinstance(image_path, str)
-            else image_path
+
+        class_ids, confs, boxes = list(), list(), list()
+
+        image_height, image_width, _ = image.shape
+
+        x_factor = image_width / self.INPUT_WIDTH
+        y_factor = image_height / self.INPUT_HEIGHT
+
+        rows = output_data[0].shape[0]
+
+        for i in range(rows):
+            row = output_data[0][i]
+            conf = row[4]
+
+            classes_score = row[4:]
+            minVal, maxVal, min_idx, max_idx = cv2.minMaxLoc(classes_score)
+            class_id = max_idx[1]
+            if classes_score[class_id] > self.CONFIDENCE_THRESHOLD:
+                confs.append(maxVal)
+                label = self.CLASESS_YOLO[int(class_id)]
+                class_ids.append(label)
+                x, y, w, h = row[0].item(), row[1].item(), row[2].item(), row[3].item()
+                left = int((x - 0.5 * w) * x_factor)
+                top = int((y - 0.5 * h) * y_factor)
+                width = int(w * x_factor)
+                height = int(h * y_factor)
+                box = np.array([left, top, width, height])
+                boxes.append(box)
+
+        r_class_ids, r_confs, r_boxes = list(), list(), list()
+
+        indexes = cv2.dnn.NMSBoxes(
+            boxes, confs, self.CONFIDENCE_THRESHOLD, self.NMS_THRESHOLD
         )
 
-        output_data = (output_data[0, :, :, 0] > 0.35) * 1
-        output_data = np.uint8(output_data * 255)
-        altered_image = cv2.resize(output_data, (image.shape[1], image.shape[0]))
+        for i in indexes:
+            r_class_ids.append(class_ids[i])
+            r_confs.append(confs[i])
+            r_boxes.append(boxes[i])
 
-        kernel = np.ones((5, 5), dtype=np.float32)
-        altered_image = cv2.erode(altered_image, kernel, iterations=3)
-        contours, hierarchy = cv2.findContours(
-            altered_image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
-        )
-        if len(contours) == 0:
+        if r_confs:
+            i = np.argmax(r_confs)
+            box = boxes[i]
+            x = box[0]
+            y = box[1]
+            w = box[2]
+            h = box[3]
+            roi_arr = image[y : y + h, x : x + w].copy()
+            if roi_arr.shape[0] == 0 or roi_arr.shape[1] == 0:
+                return ""
+        else:
             return ""
-
-        c_area = np.zeros([len(contours)])
-        for j in range(len(contours)):
-            c_area[j] = cv2.contourArea(contours[j])
-
-        x, y, w, h = cv2.boundingRect(contours[np.argmax(c_area)])
-        roi_arr = image[y : y + h, x : x + w].copy()
         return pytesseract.image_to_string(roi_arr, lang="mrz")
 
     def _cleanse_roi(self, raw_text):
@@ -120,9 +185,17 @@ class FastMRZ:
 
     def _get_raw_mrz(self, image):
         image_array = self._process_image(image)
-        self.net.setInput(image_array)
+        blob = cv2.dnn.blobFromImage(
+            image_array,
+            1 / 255.0,
+            (self.INPUT_WIDTH, self.INPUT_HEIGHT),
+            swapRB=True,
+            crop=False,
+        )
+        self.net.setInput(blob)
         output_data = self.net.forward()
-        raw_roi = self._get_roi(output_data, image)
+        output_data = output_data.transpose((0, 2, 1))
+        raw_roi = self._get_roi(output_data, image_array)
         return self._cleanse_roi(raw_roi)
 
     def get_mrz(self, image, raw=False):
@@ -282,3 +355,10 @@ class FastMRZ:
         # Final status
         mrz_code_dict["status"] = "SUCCESS"
         return mrz_code_dict
+
+
+if __name__ == "__main__":
+    fmrz = FastMRZ()
+    fmrz.get_mrz(
+        r"C:\Users\ma7mo\Downloads\passport\out_put\c7d5b8c6-6aba-4b57-a45b-59509ec0e1ba.jpg"
+    )
