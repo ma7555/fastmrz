@@ -31,7 +31,7 @@ class FastMRZ:
         - padding_color: Tuple (B, G, R) to set padding color. Default is black (0, 0, 0).
 
         Returns:
-        - Padded image with the aspect ratio maintained.
+        - Padded image with the aspect ratio maintained and scaling factors + padding.
         """
         h, w = image.shape[:2]
         target_w, target_h = target_size
@@ -53,32 +53,30 @@ class FastMRZ:
 
         # Place the resized image onto the blank image (padded image)
         padded_image[top : top + new_h, left : left + new_w] = resized_image
-        return padded_image
 
-    def _process_image(self, image_path):
-        image = (
+        # Return the padded image along with scaling and padding information
+        return padded_image, scale, left, top
+
+    def _process_image(self, image_path, return_pad=False):
+        orig_image = (
             cv2.imread(image_path, cv2.IMREAD_COLOR)
             if isinstance(image_path, str)
             else image_path
         )
 
-        image = self.resize_with_padding(image, (self.INPUT_WIDTH, self.INPUT_HEIGHT))
+        processed_image, scale, left_pad, top_pad = self.resize_with_padding(
+            orig_image, (self.INPUT_WIDTH, self.INPUT_HEIGHT)
+        )
 
-        return image
+        return processed_image, orig_image, scale, left_pad, top_pad
 
-    def _get_roi(self, output_data, image):
+    def _get_roi(self, output_data, image, scale, left_pad, top_pad):
         if self.tesseract_path != "":
             pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
 
         class_ids, confs, boxes = list(), list(), list()
 
-        image_height, image_width, _ = image.shape
-
-        x_factor = image_width / self.INPUT_WIDTH
-        y_factor = image_height / self.INPUT_HEIGHT
-
         rows = output_data[0].shape[0]
-
         for i in range(rows):
             row = output_data[0][i]
             conf = row[4]
@@ -91,10 +89,10 @@ class FastMRZ:
                 label = self.CLASESS_YOLO[int(class_id)]
                 class_ids.append(label)
                 x, y, w, h = row[0].item(), row[1].item(), row[2].item(), row[3].item()
-                left = int((x - 0.5 * w) * x_factor)
-                top = int((y - 0.5 * h) * y_factor)
-                width = int(w * x_factor)
-                height = int(h * y_factor)
+                left = int(((x - 0.5 * w) - left_pad) / scale)
+                top = int(((y - 0.5 * h) - top_pad) / scale)
+                width = int(w / scale)
+                height = int(h / scale)
                 box = np.array([left, top, width, height])
                 boxes.append(box)
 
@@ -184,9 +182,11 @@ class FastMRZ:
             return image.shape[-1] == 3
 
     def _get_raw_mrz(self, image):
-        image_array = self._process_image(image)
+        (processed_image, orig_image, scale, left_pad, top_pad) = self._process_image(
+            image
+        )
         blob = cv2.dnn.blobFromImage(
-            image_array,
+            processed_image,
             1 / 255.0,
             (self.INPUT_WIDTH, self.INPUT_HEIGHT),
             swapRB=True,
@@ -195,7 +195,7 @@ class FastMRZ:
         self.net.setInput(blob)
         output_data = self.net.forward()
         output_data = output_data.transpose((0, 2, 1))
-        raw_roi = self._get_roi(output_data, image_array)
+        raw_roi = self._get_roi(output_data, orig_image, scale, left_pad, top_pad)
         return self._cleanse_roi(raw_roi)
 
     def get_mrz(self, image, raw=False):
@@ -355,10 +355,3 @@ class FastMRZ:
         # Final status
         mrz_code_dict["status"] = "SUCCESS"
         return mrz_code_dict
-
-
-if __name__ == "__main__":
-    fmrz = FastMRZ()
-    fmrz.get_mrz(
-        r"C:\Users\ma7mo\Downloads\passport\out_put\c7d5b8c6-6aba-4b57-a45b-59509ec0e1ba.jpg"
-    )
