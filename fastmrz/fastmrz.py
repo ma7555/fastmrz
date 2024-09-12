@@ -70,7 +70,7 @@ class FastMRZ:
 
         return processed_image, orig_image, scale, left_pad, top_pad
 
-    def _get_roi(self, output_data, image, scale, left_pad, top_pad):
+    def _get_roi(self, output_data, image, scale=1, left_pad=0, top_pad=0):
         if self.tesseract_path != "":
             pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
 

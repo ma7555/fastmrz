@@ -11,7 +11,9 @@ class TestFastMRZMethods(unittest.TestCase):
 
     def test_process_image(self):
         image_path = os.path.abspath("data/td3.jpg")
-        processed_image = fast_mrz._process_image(image_path)
+        processed_image, orig_image, scale, left_pad, top_pad = fast_mrz._process_image(
+            image_path
+        )
         self.assertIsInstance(processed_image, np.ndarray)
         self.assertEqual(processed_image.shape, (320, 320, 3))
 
