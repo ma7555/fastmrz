@@ -35,26 +35,14 @@ class FastMRZ:
         """
         h, w = image.shape[:2]
         target_w, target_h = target_size
-
-        # Calculate the scale factor to fit the image inside the target dimensions
         scale = min(target_w / w, target_h / h)
-
-        # Resize the image according to the scale factor
         new_w = int(w * scale)
         new_h = int(h * scale)
         resized_image = cv2.resize(image, (new_w, new_h))
-
-        # Create a blank image with the target size and fill it with the padding color
         padded_image = np.full((target_h, target_w, 3), padding_color, dtype=np.uint8)
-
-        # Calculate the top-left corner to place the resized image to center it
         top = (target_h - new_h) // 2
         left = (target_w - new_w) // 2
-
-        # Place the resized image onto the blank image (padded image)
         padded_image[top : top + new_h, left : left + new_w] = resized_image
-
-        # Return the padded image along with scaling and padding information
         return padded_image, scale, left, top
 
     def _process_image(self, image_path, return_pad=False):
@@ -74,7 +62,7 @@ class FastMRZ:
         if self.tesseract_path != "":
             pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
 
-        class_ids, confs, boxes = list(), list(), list()
+        class_ids, confs, boxes = [], [], []
 
         rows = output_data[0].shape[0]
         for i in range(rows):
@@ -96,7 +84,7 @@ class FastMRZ:
                 box = np.array([left, top, width, height])
                 boxes.append(box)
 
-        r_class_ids, r_confs, r_boxes = list(), list(), list()
+        r_class_ids, r_confs, r_boxes = [], [], []
 
         indexes = cv2.dnn.NMSBoxes(
             boxes, confs, self.CONFIDENCE_THRESHOLD, self.NMS_THRESHOLD
@@ -107,23 +95,24 @@ class FastMRZ:
             r_confs.append(confs[i])
             r_boxes.append(boxes[i])
 
-        if r_confs:
-            i = np.argmax(r_confs)
-            box = boxes[i]
-            x = box[0]
-            y = box[1]
-            w = box[2]
-            h = box[3]
-            roi_arr = image[y : y + h, x : x + w].copy()
-            if roi_arr.shape[0] == 0 or roi_arr.shape[1] == 0:
-                return ""
-        else:
+        if not r_confs:
             return ""
-        return pytesseract.image_to_string(roi_arr, lang="mrz")
+        i = np.argmax(r_confs)
+        box = boxes[i]
+        x = box[0]
+        y = box[1]
+        w = box[2]
+        h = box[3]
+        roi_arr = image[y : y + h, x : x + w].copy()
+        if roi_arr.shape[0] == 0 or roi_arr.shape[1] == 0:
+            return ""
+        roi_arr = cv2.cvtColor(roi_arr, cv2.COLOR_BGR2GRAY)
+        return pytesseract.image_to_string(
+            roi_arr, lang="mrz", config="--psm 6 -c tosp_min_sane_kn_sp=3"
+        )
 
     def _cleanse_roi(self, raw_text):
         input_list = raw_text.replace(" ", "").split("\n")
-
         selection_length = next(
             (
                 len(item)
