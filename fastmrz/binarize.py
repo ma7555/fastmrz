@@ -9,9 +9,8 @@ SIZE = 224
 STRIDE = 224
 
 
-def load_image(fname):
-    im = cv2.imread(fname)
-    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB).astype("float32")
+def load_image(im):
+    im = im.astype("float32")
     height, width, channels = im.shape
     if height < SIZE or width < SIZE:
         # Calculate the padding needed for each side
@@ -118,8 +117,8 @@ def infer_with_openvino(infer_request, input_data):
     return infer_request.get_output_tensor(0).data
 
 
-def binarize(src_fname):
-    im = load_image(src_fname)
+def binarize(gray_img):
+    im = load_image(gray_img)
     orig_shape = im.shape
     im = img_to_slices(im)
     for i in range(0, len(im), 64):
