@@ -32,7 +32,6 @@ def load_image(fname):
             [[top_pad, bottom_pad], [left_pad, right_pad], [0, 0]],
             constant_values=255,
         )
-        print("padded")
     return im
 
 
