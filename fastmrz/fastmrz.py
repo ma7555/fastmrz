@@ -106,7 +106,6 @@ class FastMRZ:
         roi_arr = image[y : y + h, x : x + w].copy()
         if roi_arr.shape[0] == 0 or roi_arr.shape[1] == 0:
             return ""
-        roi_arr = cv2.cvtColor(roi_arr, cv2.COLOR_BGR2GRAY)
         binary_roi = binarize(roi_arr)
         return pytesseract.image_to_string(
             binary_roi, lang="mrz", config="--psm 6 -c tosp_min_sane_kn_sp=3"
