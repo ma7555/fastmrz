@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import cv2
 import numpy as np
-from PIL import Image
+from binarize import binarize
 
 
 class FastMRZ:
@@ -107,6 +107,7 @@ class FastMRZ:
         if roi_arr.shape[0] == 0 or roi_arr.shape[1] == 0:
             return ""
         roi_arr = cv2.cvtColor(roi_arr, cv2.COLOR_BGR2GRAY)
+        binary_roi = binarize(roi_arr)
         return pytesseract.image_to_string(
             roi_arr, lang="mrz", config="--psm 6 -c tosp_min_sane_kn_sp=3"
         )
