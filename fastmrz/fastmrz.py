@@ -109,7 +109,7 @@ class FastMRZ:
         roi_arr = cv2.cvtColor(roi_arr, cv2.COLOR_BGR2GRAY)
         binary_roi = binarize(roi_arr)
         return pytesseract.image_to_string(
-            roi_arr, lang="mrz", config="--psm 6 -c tosp_min_sane_kn_sp=3"
+            binary_roi, lang="mrz", config="--psm 6 -c tosp_min_sane_kn_sp=3"
         )
 
     def _cleanse_roi(self, raw_text):

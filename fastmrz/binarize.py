@@ -1,8 +1,11 @@
 import cv2
 import itertools
 import numpy as np
+import os
 
-net = cv2.dnn.readNetFromONNX("/model/de_gan_fp16.onnx")
+net = cv2.dnn.readNetFromONNX(
+    os.path.join(os.path.dirname(__file__), "model/de_gan_fp16.onnx")
+)
 
 
 def split2(dataset, size, h, w):
@@ -29,7 +32,7 @@ def merge_image2(splitted_images, h, w):
 
 
 def binarize(img):
-    img /= 255.0
+    img = img.astype("float32") / 255.0
 
     # Prepare padding
     h = ((img.shape[0] // 256) + 1) * 256
